@@ -1,0 +1,265 @@
+# Question Answer Forum
+# ---------------------
+
+# GOAL
+# o To create a question answer forum where a host posts a question along with a minimum bid amount and
+#   respondents reply with bids. The respondent whose answer gets the maximum number of votes then get a large
+#   portion of the bid pool while his voters share the remaining portion
+
+# MOTIVATION
+# o Although this is a very simplified version, a more complex version of the same could potentially provide a better
+#   incentive for people to provide information (ether rather than upvotes). Hence, this could be more useful for a 
+#   situation where some amount of work is required to obtain the answer. e.g. For questions like Give me all police cases
+#   where an African American was falsely accused and freed of accusation in court?
+# o Because of the flexibility of the forum, the usage of this could range all the way from trivial entertainment to 
+#   leader elections where the answer is a name (which brings up an interesting point, Can we gamify presidential voting?)
+# o The transparency and integrity only help in bringing confidence to the answer and the fact that the answer is voted by
+#   other respondents means that there is some measure of validity of truth to it.
+
+# USEFULNESS
+# o In some very vague sense, this problem is similar of leader registration and selection which is closely related to TheDAO.
+#   However, the usefulness of this has been limited to questions and answers. However, due to the flexibility of the
+#   structure, this could be used in many different scenarios such as
+#   	o Betting/Entertainment
+#   	o Leader Election
+#   	o Traditional problem solving
+  	
+# SCENARIO
+# The program consists of 3 phases - joining phase, voting phase and terminated.
+
+# i)   The joining phase is launched as soon as a host registers a question using the host() function and sets a minimum bid 
+#      amount. This is the period when respondents can join the forum with their answers and bids. After this period, no more 
+#      respondnts can join.
+
+# ii)  The voting phase starts with the first call to vote() after the joining phase is over. This is the period when the
+#      respondents vote on a particular answer. For this implementation, each respondent is fixed to 1 vote only.
+
+# iii) Once, the voting phase ends, which is called upon by the first call to reward(), rewards are distributed to the
+#      respondent with the maximum number of votes and a minor portion is shared between the voters. At this point, the
+#      forum reaches the terminated phase and could potentially take new questions from the same host. However, the current
+#      implementation only supports single question-ed forums.
+
+# ASSUMPTIONS
+# o Questions and answers are not private over the contract and we assume there is an alternative channel to decide a common
+#   key and users encrypt questions and answers before sending it to the contract in a situation where it is required
+# o For simplicity,
+# 	o Hosts can only post questions once
+# 	o Respondents cannot answer twice or edit their answers
+# 	o Host does not receive rewards for voting (to the majority candidate)
+#   o In the case of a tie between answers, the first encountered highest voted answer is chosen
+
+# SECURITY ANALYSIS
+# -----------------
+
+# ** Individual Attack and Generic Cases have been written as Python Codes and explained within the code itself
+
+# The following features have been kept in mind while designing the contract --
+
+# Illegitimate Calls to Vote/Reward
+# 	o Users cannot call vote/reward without joining and before the voting period starts/end respectively
+# 	o Users cannot submit answers with bids lesser than a particular amount
+
+# CallStack Overflow
+# 	o CallStack cannot be overflowed as it is being checked for in each function
+
+# Money Leaks
+# 	o A suicide function has been implemented which allows the organizer (only the organizer) to withdraw particular
+# 	  amounts of ether from the contract in case there is leak of ether. Since, we assume the organizer address is public
+# 	  and someone is held accountable for it, the integrity and transparency of the blockchain should maintain the
+# 	  confidence of the users that their funds will not be tampered with without cause
+# 	o In functions where ether is being received, in case there is any error condition, it is being returned
+
+# Some issues in the current implementation along with remedies --
+
+# Privacy Leaks
+# 	o Since, everyone can see the answers, this calls for clients to personally manage separate channels for privacy, e.g. a
+# 	  group to share a common key and obtain members
+# 	o Those who cannot do this are forced to leak answers to viewers for no benefit. This de-incentivizes respondents from
+# 	  answering questions which involve some work as they do not receive proportionate rewards
+	
+# 	- MPC and Homomorphic Solutions can be applied
+	
+# 	o This also introduces a race condition where a person receives the transaction containing the right answer by a respondent
+# 	  and starts sharing this answer himself. 
+
+# 	- This case would require a solution where a commit solution where respondents commit on the hash of their answer string | nonce
+# 	  after the joining phase is complete and the voting phase begins
+
+# Vote Biases
+# 	o The test cases showcase 2 attacks launched by 1) quick voters and 2) influential voters_cut
+
+# 	- The only solution to this is to reveal voting statistics after the voting phase but this too requires the use of
+# 	  Homomorphism or MPCs to maintain the privacy
+
+# These 2 issues are probably the most concerning and most of the edge cases and nuances have been taken care of otherwise.
+
+event print_addr(m:address:indexed)
+event print_str(x:str)
+event print_num(x:uint256)
+
+# Phases - 0(joining), 1(voting), 2(rewarded/terminated)
+data forums[2^160](phase, join_start, vote_start, min_bid, bid_pool, num_bids, host_voted, bidders[2^160](bid, votes, voted, voters[]))
+
+# Constants
+data organizer_addr
+data voting_period
+data joining_period
+# Since float doesn't seem to be allowed, it is voters_cut / 10
+data voters_cut
+
+# Service Metadata
+data sum_in_bids
+data num_hosts
+
+# Some redundant metadata for the purpose of usability
+data forum_meta[2^160][](ans_str, lena, bidder_addr)
+data service_meta[](q_str, lenq, host_addr)
+
+def test_callstack():
+	return 1
+
+def init():
+	self.organizer_addr = 0xdeadbeef
+	self.joining_period = 10
+	self.voting_period = 5
+	self.sum_in_bids = 0
+	self.num_hosts = 0
+	self.voters_cut = 1
+
+# We assume for this assignment that hosts cannot submit more than one question. It is not very tough to accomodate for multiple rounds of questions.
+def host(q:str):
+	if self.test_callstack() != 1:
+		send(msg.sender,msg.value)
+		return 0
+	if msg.value <= 0:
+		return 0
+	if not self.service_meta[msg.sender].q_str:
+		# Add forum entry data
+		self.forums[msg.sender].min_bid = msg.value
+		self.forums[msg.sender].bid_pool = msg.value
+		self.forums[msg.sender].num_bids = 0
+		self.forums[msg.sender].phase = 0
+		self.forums[msg.sender].join_start = block.number
+		self.forums[msg.sender].host_voted = 0
+		# Update App Metadata
+		self.service_meta[self.num_hosts].lenq = len(q)
+		save(self.service_meta[self.num_hosts].q_str,q,len(q))
+		self.service_meta[self.num_hosts].host_addr = msg.sender
+		self.num_hosts += 1
+		self.sum_in_bids += msg.value
+	else:	
+		send(msg.sender,msg.value)
+		return 0
+
+def join(addr, ans:str):
+	if self.test_callstack() != 1:
+		send(msg.sender,msg.value)
+		return 0
+	if not self.forums[addr].min_bid:
+		send(msg.sender,msg.value)
+		return 0
+	if self.forums[addr].phase != 0:
+		send(msg.sender,msg.value)
+		return 0
+	if msg.value < self.forums[addr].min_bid:
+		send(msg.sender,msg.value)
+		return 0
+	if self.forums[addr].bidders[msg.sender].bid:
+		send(msg.sender,msg.value)
+		return 0
+	# Add forum entry data
+	self.forums[addr].bid_pool += msg.value
+	self.forums[addr].bidders[msg.sender].bid = msg.value
+	self.forums[addr].bidders[msg.sender].voted = 0
+	self.forums[addr].bidders[msg.sender].votes = 0
+	# Add forum and app metadata
+	self.sum_in_bids += msg.value
+	self.forum_meta[addr][self.forums[addr].num_bids].bidder_addr = msg.sender
+	self.forum_meta[addr][self.forums[addr].num_bids].lena = len(ans)
+	save(self.forum_meta[addr][self.forums[addr].num_bids].ans_str,ans,len(ans))
+	self.forums[addr].num_bids += 1
+
+def vote(addr, bidder_addr):
+	if self.test_callstack() != 1:
+		return 0
+	if not self.forums[addr].min_bid:
+		return 0
+	if not self.forums[addr].bidders[bidder_addr].bid:
+		return 0
+	if self.forums[addr].phase == 0:
+		if block.number - self.forums[addr].join_start > self.joining_period:
+			self.forums[addr].phase = 1
+			self.forums[addr].vote_start = block.number
+		else:
+			return 0
+	if not self.forums[addr].bidders[msg.sender].bid:
+		if msg.sender == addr:
+			if self.forums[addr].host_voted == 1:
+				return 0
+			else:
+				self.forums[addr].host_voted = 1
+				self.forums[addr].bidders[bidder_addr].voters[self.forums[addr].bidders[bidder_addr].votes] = msg.sender
+				self.forums[addr].bidders[bidder_addr].votes += 1
+				return None
+		else:
+			return 0
+	if self.forums[addr].bidders[msg.sender].voted == 1:
+		return 0
+	if self.forums[addr].phase == 1:
+		self.forums[addr].bidders[msg.sender].voted = 1
+		self.forums[addr].bidders[bidder_addr].voters[self.forums[addr].bidders[bidder_addr].votes] = msg.sender
+		self.forums[addr].bidders[bidder_addr].votes += 1
+
+def reward(addr):
+	if self.test_callstack() != 1:
+		return 0
+	if not self.forums[addr].min_bid:
+		return 0
+	if self.forums[addr].phase == 1:
+		if block.number - self.forums[addr].vote_start > self.voting_period:
+			self.forums[addr].phase = 2
+			bidder_iter = 0
+			max_voted_addr = addr
+			max_votes = 0
+			while bidder_iter < self.forums[addr].num_bids:
+				bidder_addr = self.forum_meta[addr][bidder_iter].bidder_addr
+				if not self.forums[addr].bidders[bidder_addr].bid:
+					break
+				else:
+					if self.forums[addr].bidders[bidder_addr].votes > max_votes:
+						max_voted_addr = bidder_addr
+						max_votes = self.forums[addr].bidders[bidder_addr].votes
+				bidder_iter += 1
+			send(max_voted_addr, ((self.forums[addr].bid_pool)*(10 - self.voters_cut))/10)
+			self.sum_in_bids -= ((self.forums[addr].bid_pool)*(10 - self.voters_cut))/10
+
+			voter_iter = 0
+			num_voters = self.forums[addr].bidders[max_voted_addr].votes
+			while voter_iter < num_voters:
+				send(self.forums[addr].bidders[max_voted_addr].voters[voter_iter], ((self.forums[addr].bid_pool)*(self.voters_cut))/(10*num_voters))
+				self.sum_in_bids -= ((self.forums[addr].bid_pool)*(self.voters_cut))/(10*num_voters)
+				voter_iter += 1
+		else:
+			return 0
+	else:
+		return 0
+
+def suicide(amount):
+	if msg.sender == organizer_addr:
+		send(organizer_addr, amount)
+	else:
+		return 0
+
+# def num_questions():
+# 	return self.num_hosts
+
+# def get_questions(iter):
+# 	length = self.service_meta[iter].lenq
+# 	return (([(load(self.service_meta[iter].q_str, chars=length):str), self.service_meta[iter].host_addr], items=2):arr)
+
+# def num_answers(addr):
+# 	return self.forums[addr].num_bids
+
+# def get_answers(addr , iter):
+# 	length = self.forum_meta[addr][iter].lena
+# 	return [(load(self.forum_meta[addr][iter].ans_str, chars=length):str), self.forum_meta[addr][iter].bidder_addr]
